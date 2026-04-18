@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { PlayCircle, Plus, User, Folder, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 function HomePage() {
   const [courses, setCourses] = useState([]);
@@ -34,11 +35,12 @@ function HomePage() {
       if (res.ok) {
         setShowCourseModal(false);
         setNewCourse({ title: '', description: '' });
+        toast.success("Курс успешно создан! 🚀");
         fetchCourses(); // Перезагружаем список курсов
       } else {
-        alert("Ошибка создания курса");
+        toast.error("Ошибка соединения!");
       }
-    } catch (err) { alert("Ошибка соединения с сервером"); }
+    } catch (err) { toast.error("Ошибка соединения!"); }
   };
 
   return (

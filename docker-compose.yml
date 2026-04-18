@@ -1,0 +1,49 @@
+services:
+  # 1. База данных
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: scrimba
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 2. Бэкенд
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    
+    ports:
+      - "8081:8080" # Было 8080:8080, теперь 8081 на компе -> 8080 в контейнере
+    # ...
+    environment:
+      # Возвращаем локальную базу для разработки
+      - DB_URL=postgres://postgres:password@db:5432/scrimba?sslmode=disable
+      - PORT=8080
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+
+  # 3. Фронтенд
+  frontend:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    # Запускаем установку зависимостей и старт (через sh -c для надежности)
+    command: sh -c "npm install && npm start"
+    environment:
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true # Помогает React видеть изменения в Docker
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
