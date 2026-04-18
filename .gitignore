@@ -1,0 +1,15 @@
+# Фронтенд
+frontend/node_modules/
+frontend/build/
+frontend/.env
+
+# Бэкенд
+backend/uploads/
+backend/tmp/
+backend/.env
+# Замени "scrimba-back" на имя твоего скомпилированного файла, если оно другое
+backend/scrimba-back
+backend/scrimba-back.exe
+
+# Системные файлы
+.DS_Store
