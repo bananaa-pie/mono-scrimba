@@ -8,6 +8,9 @@ import { AuthContext } from '../context/AuthContext';
 import api from '../api';
 import toast from 'react-hot-toast';
 
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'; // Тёмная тема в стиле VS Code
+
 
 function LessonPage() {
   const { id } = useParams();
@@ -112,20 +115,21 @@ function LessonPage() {
   // --- ЗАГРУЗКА И API ЧЕРЕЗ AXIOS ---
   const fetchLessons = async () => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const courseId = params.get('courseId');
-      const url = courseId ? `/courses/${courseId}/lessons` : `/lessons`;
+      const res = await api.get('/lessons');
+      const allLessons = res.data || [];
 
-      const res = await api.get(url);
-      setLessons(res.data || []);
-
-      if (id && id !== 'new' && res.data && res.data.length > 0) {
-        const targetLesson = res.data.find(l => l.ID === parseInt(id));
-        if (targetLesson) loadLesson(targetLesson);
+      if (id && id !== 'new') {
+        const targetLesson = allLessons.find(l => l.ID === parseInt(id));
+        if (targetLesson) {
+          // Фильтруем: оставляем только уроки текущего курса
+          const courseLessons = allLessons.filter(l => l.CourseID === targetLesson.CourseID);
+          setLessons(courseLessons);
+          loadLesson(targetLesson);
+        }
+      } else {
+        setLessons(allLessons);
       }
-    } catch (err) { 
-      toast.error("Ошибка загрузки уроков"); 
-    }
+    } catch (err) { toast.error("Ошибка загрузки уроков"); }
   };
 
   const runCode = async () => {
@@ -133,10 +137,14 @@ function LessonPage() {
     setOutput("Running...");
     try {
       const res = await api.post('/run', { code });
-      setOutput(res.data.output || res.data.error || "No output");
-    } catch (err) { 
-      setOutput("Backend error. Check connection."); 
-    }
+      const resultText = res.data.output || res.data.error || "No output";
+      setOutput(resultText);
+      
+      if (mode === 'recording') {
+        const elapsed = Date.now() - startTimeRef.current;
+        timelineRef.current.push({ time: elapsed, type: 'output', value: resultText });
+      }
+    } catch (err) { setOutput("Backend error."); }
   };
 
   const sendChat = async () => {
@@ -150,7 +158,18 @@ function LessonPage() {
 
     try {
       const res = await api.post('/chat', { message: userMsg, code: code });
-      setMessages(prev => [...prev, { role: 'AI', text: res.data.choices[0].message.content }]);
+      
+      if (res.data && res.data.choices && res.data.choices.length > 0) {
+        setMessages(prev => [...prev, { role: 'AI', text: res.data.choices[0].message.content }]);
+      } else if (res.data && res.data.error) {
+        // РАСПАКОВЫВАЕМ ОБЪЕКТ ОШИБКИ
+        const errorData = res.data.error;
+        const errorText = typeof errorData === 'object' ? (errorData.message || JSON.stringify(errorData)) : errorData;
+        setMessages(prev => [...prev, { role: 'AI', text: `⚠️ Ошибка API: ${errorText}` }]);
+      } else {
+        setMessages(prev => [...prev, { role: 'AI', text: `⚠️ Неизвестный ответ: ${JSON.stringify(res.data)}` }]);
+      }
+
     } catch (err) {
       if (err.response?.status === 401) {
         handleLogout();
@@ -165,7 +184,7 @@ function LessonPage() {
     setCode(newVal);
     if (mode === 'recording') {
       const elapsed = Date.now() - startTimeRef.current;
-      timelineRef.current.push({ time: elapsed, value: newVal });
+      timelineRef.current.push({ time: elapsed, type: 'code', value: newVal });
     }
   };
 
@@ -238,7 +257,16 @@ function LessonPage() {
   const syncCodeToTime = useCallback((timeMs) => {
     const pastEvents = timelineRef.current.filter(e => e.time <= timeMs);
     if (pastEvents.length > 0) {
-      setCode(pastEvents[pastEvents.length - 1].value);
+      // Ищем последнее изменение кода
+      const codeEvents = pastEvents.filter(e => !e.type || e.type === 'code');
+      if (codeEvents.length > 0) setCode(codeEvents[codeEvents.length - 1].value);
+      
+      // Ищем последний вывод в консоль
+      const outputEvents = pastEvents.filter(e => e.type === 'output');
+      if (outputEvents.length > 0) setOutput(outputEvents[outputEvents.length - 1].value);
+      else setOutput('');
+    } else {
+      setOutput('');
     }
   }, []);
 
@@ -325,7 +353,10 @@ function LessonPage() {
       {/* ШАПКА */}
       <header className="flex justify-between px-5 py-3 bg-[#252526] border-b border-[#333] items-center">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white transition-colors">
+          <button onClick={() => {
+    const cId = new URLSearchParams(window.location.search).get('courseId');
+    navigate(cId ? `/course/${cId}` : '/');
+  }} className="text-gray-400 hover:text-white transition-colors">
             <ArrowLeft size={24} />
           </button>
           <div className="text-lg font-bold">Scrimba<span className="text-[#00add8]">Go</span></div>
@@ -432,7 +463,30 @@ function LessonPage() {
                 <div key={i} className={`p-3 rounded-xl max-w-[90%] shadow-md ${m.role === 'You' ? 'bg-[#00add8] rounded-tr-none self-end' : 'bg-[#2d2d2d] border border-[#3c3c3c] rounded-tl-none self-start'}`}>
                   <div className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-wider opacity-70">{m.role}</div>
                   <div className="text-sm leading-relaxed text-gray-100 prose prose-invert prose-p:my-1 prose-pre:bg-[#181818] prose-pre:border prose-pre:border-[#333] prose-pre:p-3 prose-pre:rounded-lg">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                    <ReactMarkdown 
+  remarkPlugins={[remarkGfm]}
+  components={{
+    code({node, inline, className, children, ...props}) {
+      const match = /language-(\w+)/.exec(className || '');
+      return !inline && match ? (
+        <SyntaxHighlighter
+          {...props}
+          children={String(children).replace(/\n$/, '')}
+          style={vscDarkPlus}
+          language={match[1]}
+          PreTag="div"
+          customStyle={{ margin: 0, borderRadius: '8px', fontSize: '13px' }}
+        />
+      ) : (
+        <code {...props} className="bg-[#2a2a2a] text-[#569cd6] px-1.5 py-0.5 rounded text-[13px] font-mono">
+          {children}
+        </code>
+      )
+    }
+  }}
+>
+  {m.text}
+</ReactMarkdown>
                   </div>
                 </div>
               ))}

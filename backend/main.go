@@ -104,7 +104,9 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	u.Password = hashed
 
 	if err := db.DB.Create(&u).Error; err != nil {
-		http.Error(w, "User already exists", http.StatusConflict)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict) // 409 статус
+		json.NewEncoder(w).Encode(map[string]string{"error": "Пользователь с таким именем уже существует!"})
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -204,39 +206,28 @@ func runHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Увеличиваем таймаут до 15 секунд
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Создаем временный файл
+	tmpDir, _ := os.MkdirTemp("", "code-*")
+	defer os.RemoveAll(tmpDir)
+	filePath := filepath.Join(tmpDir, "main.go")
+	os.WriteFile(filePath, []byte(req.Code), 0644)
+
+	// Защита от бесконечных циклов (5 секунд)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i",
-		"--network", "none",
-		"--memory", "128m",
-		"golang:1.25-alpine",
-		"sh", "-c", "cat > main.go && go run main.go")
+	cmd := exec.CommandContext(ctx, "go", "run", filePath)
+	out, _ := cmd.CombinedOutput()
 
-	// Надежно передаем код в стандартный ввод
-	cmd.Stdin = strings.NewReader(req.Code)
-
-	out, err := cmd.CombinedOutput()
-
-	// Если процесс убит по таймауту
 	if ctx.Err() == context.DeadlineExceeded {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"output": "[СИСТЕМА] Ошибка: превышено время выполнения (Timeout 15s). Контейнер запускается слишком долго, либо в коде бесконечный цикл."})
-		return
-	}
-
-	// Если сам Docker не смог запуститься (например, проблемы с правами)
-	if err != nil && len(out) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"output": "[СИСТЕМА ДОКЕР] Ошибка песочницы: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"output": "Ошибка: превышено время выполнения (Timeout 5s). У вас бесконечный цикл?"})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"output": string(out)})
 }
-
 func chatHandler(w http.ResponseWriter, r *http.Request) {
 	var req ChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -245,13 +236,14 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hfToken := os.Getenv("HF_TOKEN")
-	apiURL := "https://router.huggingface.co/v1/chat/completions"
+	apiURL := "https://openrouter.ai/api/v1/chat/completions"
 
 	systemPrompt := "Ты — опытный Go-разработчик и ментор. Помогай студенту с кодом, объясняй ошибки."
 	userPrompt := fmt.Sprintf("Контекст кода:\n%s\n\nВопрос: %s", req.Code, req.Message)
 
 	payload, _ := json.Marshal(map[string]interface{}{
-		"model": "openai/gpt-oss-120b:fastest",
+		// Используем Mistral - она одна из самых стабильных бесплатных на OpenRouter
+		"model": "nvidia/nemotron-3-nano-30b-a3b:free",
 		"messages": []map[string]interface{}{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
@@ -262,6 +254,13 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
 	aiReq, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(payload))
 	aiReq.Header.Set("Authorization", "Bearer "+hfToken)
 	aiReq.Header.Set("Content-Type", "application/json")
+
+	// --- ДОБАВЛЯЕМ ЭТИ ДВА ЗАГОЛОВКА ---
+	// OpenRouter требует их, чтобы понимать, кто им шлет запросы.
+	// Без них некоторые серверы просто отбрасывают бесплатные запросы!
+	aiReq.Header.Set("HTTP-Referer", "http://localhost:3000")
+	aiReq.Header.Set("X-Title", "ScrimbaGo")
+	// -----------------------------------
 
 	client := &http.Client{}
 	resp, err := client.Do(aiReq)

@@ -9,7 +9,7 @@ import PricingPage from './pages/PricingPage';
 function App() {
   return (
     <BrowserRouter>
-    <Toaster position="top-right" toastOptions={{ style: { background: '#333', color: '#fff' } }} />
+    <Toaster position="bottom-right" toastOptions={{ style: { background: '#333', color: '#fff' } }} />
       <Routes>
         <Route path="/" element={<HomePage />} />
         
