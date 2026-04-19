@@ -19,7 +19,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte("super_secret_diploma_key_2026")
+var jwtKey []byte
+
+// Функция init автоматически запускается перед main()
+func init() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "fallback_secret_key" // Если забудем указать в Docker
+	}
+	jwtKey = []byte(secret)
+}
 
 type CodeRequest struct {
 	Code string `json:"code"`
@@ -38,7 +47,7 @@ type Claims struct {
 
 func enableCORS(w *http.ResponseWriter) {
 	(*w).Header().Set("Access-Control-Allow-Origin", "*")
-	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE, PUT")
 	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }
 
@@ -157,6 +166,10 @@ func createCourseHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(input.Title) == "" {
+		http.Error(w, "Название курса не может быть пустым", http.StatusBadRequest)
+		return
+	}
 
 	tokenString := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	claims := &Claims{}
@@ -164,6 +177,11 @@ func createCourseHandler(w http.ResponseWriter, r *http.Request) {
 
 	var user db.User
 	db.DB.Where("username = ?", claims.Username).First(&user)
+
+	if user.ID == 0 {
+		http.Error(w, "Пользователь не найден (возможно, база была сброшена). Пожалуйста, перезайдите.", http.StatusUnauthorized)
+		return
+	}
 
 	if user.Role != "teacher" {
 		http.Error(w, "Only teachers can create courses", http.StatusForbidden)
@@ -281,6 +299,10 @@ func lessonsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			title := r.FormValue("title")
+			if strings.TrimSpace(title) == "" {
+				http.Error(w, "Название урока не может быть пустым", http.StatusBadRequest)
+				return
+			}
 			initialCode := r.FormValue("initial_code")
 			timeline := r.FormValue("timeline")
 

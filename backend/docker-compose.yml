@@ -23,7 +23,8 @@ services:
       - "8080:8080"
     environment:
       DB_URL: "host=db user=user password=password dbname=scrimba_db port=5432 sslmode=disable"
-      HF_TOKEN: "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" # Твой токен здесь
+      HF_TOKEN: "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"
+      JWT_SECRET: "super_secret_diploma_key_2026" # <-- Добавили ключ сюда
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/app 

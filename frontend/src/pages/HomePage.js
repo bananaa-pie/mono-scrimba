@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, User, Folder, X, Loader2, Trash2 } from 'lucide-react';
+import { Plus, User, Folder, X, Loader2, Trash2, LogOut } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../api';
 import toast from 'react-hot-toast';
@@ -11,7 +11,12 @@ function HomePage() {
   const [showModal, setShowModal] = useState(false);
   const [newCourse, setNewCourse] = useState({ title: '', description: '' });
   
-  const { user } = useContext(AuthContext);
+  // --- ДОБАВИЛИ АВТОРИЗАЦИЮ ИЗ КОНТЕКСТА ---
+  const { user, login, logout } = useContext(AuthContext);
+  const [authMode, setAuthMode] = useState(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [regRole, setRegRole] = useState('student');
 
   useEffect(() => {
     fetchCourses();
@@ -36,7 +41,8 @@ function HomePage() {
       setNewCourse({ title: '', description: '' });
       fetchCourses();
     } catch (err) {
-      toast.error("Ошибка при создании курса");
+      const errorMsg = err.response?.data || err.message || "Неизвестная ошибка";
+      toast.error(`Ошибка: ${errorMsg}`);
     }
   };
 
@@ -53,9 +59,65 @@ function HomePage() {
     }
   };
 
+  // --- ЛОГИКА АВТОРИЗАЦИИ (КАК В УРОКЕ) ---
+  const handleAuth = async (isLogin) => {
+    const endpoint = isLogin ? '/login' : '/register';
+    const bodyData = isLogin ? { username, password } : { username, password, role: regRole };
+
+    try {
+      const res = await api.post(endpoint, bodyData);
+      if (isLogin) {
+        login(res.data.token, res.data.role);
+        setAuthMode(null);
+        toast.success("Успешный вход!");
+      } else {
+        handleAuth(true); // Авто-логин после регистрации
+      }
+      setUsername('');
+      setPassword('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Ошибка авторизации');
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    toast.success("Вы вышли из системы");
+  };
+
   return (
     <div className="p-10 min-h-screen">
-      {/* МОДАЛЬНОЕ ОКНО */}
+      
+      {/* --- МОДАЛКА АВТОРИЗАЦИИ --- */}
+      {authMode && (
+        <div className="fixed inset-0 bg-black/70 z-[999] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-[#252526] p-8 rounded-xl w-[350px] border border-[#3c3c3c] shadow-2xl flex flex-col">
+            <div className="flex justify-between mb-5">
+              <h2 className="m-0 text-[#00add8] text-xl font-bold">{authMode === 'login' ? 'Вход' : 'Регистрация'}</h2>
+              <button onClick={() => setAuthMode(null)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+            </div>
+            <input className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none focus:border-[#00add8]" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+            <input className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none focus:border-[#00add8]" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+            {authMode === 'register' && (
+              <select className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none cursor-pointer" value={regRole} onChange={e => setRegRole(e.target.value)}>
+                <option value="student">Я ученик (Student)</option>
+                <option value="teacher">Я преподаватель (Teacher)</option>
+              </select>
+            )}
+            <button onClick={() => handleAuth(authMode === 'login')} className="bg-[#00add8] text-white p-3 rounded-md font-bold mt-2 hover:bg-[#008db1] transition-colors">
+              {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
+            </button>
+            <div className="mt-4 text-center text-[13px] text-gray-400">
+              {authMode === 'login' ? 'Нет аккаунта? ' : 'Уже есть аккаунт? '}
+              <span onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-[#00add8] cursor-pointer hover:underline">
+                {authMode === 'login' ? 'Создать' : 'Войти'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* МОДАЛЬНОЕ ОКНО СОЗДАНИЯ КУРСА */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#252526] p-8 rounded-xl w-full max-w-md border border-gray-700 shadow-2xl">
@@ -91,16 +153,32 @@ function HomePage() {
           <h1 className="text-4xl font-black">Scrimba<span className="text-[#00add8]">Go</span></h1>
           <p className="text-gray-500 mt-2 text-lg">Интерактивная платформа для изучения Go</p>
         </div>
-        <div className="flex items-center gap-4 bg-gray-800/50 px-4 py-2 rounded-full border border-gray-700">
-          <User size={20} className="text-[#00add8]"/>
-          <span className="text-gray-300 font-medium">
-            {user ? (user.role === 'teacher' ? 'Преподаватель' : 'Студент') : 'Гость'}
-          </span>
-        </div>
+        
+        {/* --- ОБНОВЛЕННЫЙ БЛОК ПОЛЬЗОВАТЕЛЯ --- */}
+        {user ? (
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 bg-gray-800/50 px-4 py-2 rounded-full border border-gray-700">
+              <User size={18} className="text-[#00add8]"/>
+              <span className="text-gray-300 font-medium text-sm">
+                {user.role === 'teacher' ? 'Преподаватель' : 'Студент'}
+              </span>
+            </div>
+            <button onClick={handleLogout} className="text-gray-500 hover:text-white transition-colors p-2" title="Выйти">
+              <LogOut size={20} />
+            </button>
+          </div>
+        ) : (
+          <button 
+            onClick={() => setAuthMode('login')} 
+            className="bg-[#00add8] hover:bg-[#008db1] text-white px-6 py-2.5 rounded-full font-bold transition-all shadow-lg shadow-[#00add8]/20 active:scale-95"
+          >
+            Войти
+          </button>
+        )}
       </header>
 
       <div className="flex justify-between items-center mb-8">
-        <h2 className="text-2xl font-bold flex items-center gap-3"><Folder className="text-[#00add8]"/> Ваши курсы</h2>
+        <h2 className="text-2xl font-bold flex items-center gap-3"><Folder className="text-[#00add8]"/> Наши курсы</h2>
         {user?.role === 'teacher' && (
           <button onClick={() => setShowModal(true)} className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-green-900/20 transition-all active:scale-95">
             <Plus size={20}/> Создать курс

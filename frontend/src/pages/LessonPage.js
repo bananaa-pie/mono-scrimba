@@ -74,6 +74,14 @@ function LessonPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mode, audioUrl]); 
 
+  // Защита маршрута создания урока
+  useEffect(() => {
+    if (id === 'new' && (!user || user.role !== 'teacher')) {
+      toast.error("Доступ запрещен: только для преподавателей");
+      navigate('/');
+    }
+  }, [id, user, navigate]);
+
   // --- ЛОГИКА АВТОРИЗАЦИИ ЧЕРЕЗ AXIOS ---
   const handleAuth = async (isLogin) => {
     const endpoint = isLogin ? '/login' : '/register';
@@ -380,7 +388,7 @@ function LessonPage() {
                   const cId = params.get('courseId');
                   navigate(`/lesson/${l.ID}${cId ? `?courseId=${cId}` : ''}`);
                 }} 
-                className={`p-3 rounded-md mb-2 cursor-pointer border text-[13px] transition-colors ${parseInt(id) === l.ID ? 'border-[#00add8] bg-[#2a2a2a]' : 'border-[#444] bg-[#333] hover:bg-[#3a3a3a]'}`}
+                className={`p-3 rounded-md mb-2 cursor-pointer border text-[13px] transition-colors relative group ${(id !== 'new' && parseInt(id) === l.ID) ? 'border-[#00add8] bg-[#2a2a2a]' : 'border-[#444] bg-[#333] hover:bg-[#3a3a3a]'}`}
               >
                 <div className="font-medium">{l.Title}</div>
                 <div className="text-[10px] text-gray-400 mt-1">{new Date(l.CreatedAt).toLocaleDateString()}</div>
