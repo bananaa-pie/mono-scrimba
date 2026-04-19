@@ -1,72 +1,103 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { PlayCircle, Plus, BookOpen, ArrowLeft } from 'lucide-react';
+import { PlayCircle, Plus, BookOpen, ArrowLeft, Loader2 } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import api from '../api';
+import toast from 'react-hot-toast';
 
 function CoursePage() {
-  const { id } = useParams(); // ID курса из URL
+  const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useContext(AuthContext);
+  
   const [lessons, setLessons] = useState([]);
-  const [courseInfo, setCourseInfo] = useState({ Title: 'Загрузка...', Description: '' });
-  const role = localStorage.getItem('role');
+  const [loading, setLoading] = useState(true);
+  
+  // Пока у нас нет отдельного роута для инфы о курсе, делаем заглушку
+  const courseInfo = { Title: `Курс #${id}`, Description: 'Список уроков' };
 
   useEffect(() => {
-    // 1. В идеале тут должен быть запрос информации о самом курсе (GET /courses/:id)
-    // Пока просто ставим заглушку для названия
-    setCourseInfo({ Title: `Курс #${id}`, Description: 'Список уроков' });
+    const fetchLessons = async () => {
+      try {
+        const res = await api.get(`/courses/${id}/lessons`);
+        setLessons(res.data || []);
+      } catch (err) {
+        toast.error("Ошибка при загрузке уроков");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    // 2. Запрашиваем уроки ТОЛЬКО для этого курса
-    fetch(`http://localhost:8080/courses/${id}/lessons`)
-      .then(res => res.json())
-      .then(data => setLessons(data || []))
-      .catch(err => console.error("Ошибка загрузки:", err));
+    fetchLessons();
   }, [id]);
 
   return (
-    <div style={{ padding: '40px', background: '#1e1e1e', minHeight: '100vh', color: 'white', fontFamily: 'system-ui' }}>
+    <div className="p-10 min-h-screen bg-[#1e1e1e] text-white font-sans">
       
       {/* Навигация назад */}
-      <button onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px', fontSize: '14px' }}>
-        <ArrowLeft size={16} /> На главную
+      <button 
+        onClick={() => navigate('/')} 
+        className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-6 group"
+      >
+        <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" /> 
+        Назад к курсам
       </button>
 
-      <div style={{ borderBottom: '1px solid #333', paddingBottom: '20px', marginBottom: '30px' }}>
-        <h1 style={{ margin: 0, fontSize: '32px' }}>{courseInfo.Title}</h1>
-        <p style={{ margin: '5px 0 0 0', color: '#888' }}>{courseInfo.Description}</p>
+      {/* Шапка курса */}
+      <div className="border-b border-gray-800 pb-8 mb-10">
+        <h1 className="text-4xl font-black mb-2">{courseInfo.Title}</h1>
+        <p className="text-gray-500 text-lg">{courseInfo.Description}</p>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><BookOpen size={24}/> Уроки курса</h2>
+      {/* Панель управления уроками */}
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-bold flex items-center gap-3">
+          <BookOpen className="text-[#00add8]" size={28}/> 
+          Уроки курса
+        </h2>
         
-        {/* Кнопка записи урока (передаем ID курса в URL, чтобы LessonPage знал, куда сохранять) */}
-        {role === 'teacher' && (
-          <Link to={`/lesson/new?courseId=${id}`} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '10px 15px', background: '#22c55e', color: 'white', textDecoration: 'none', borderRadius: '6px', fontWeight: 'bold' }}>
-            <Plus size={18} /> Записать урок
+        {user?.role === 'teacher' && (
+          <Link 
+            to={`/lesson/new?courseId=${id}`} 
+            className="bg-[#00add8] hover:bg-[#008db1] px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-[#00add8]/20 transition-all active:scale-95"
+          >
+            <Plus size={20} /> Записать урок
           </Link>
         )}
       </div>
 
-      {/* Список УРОКОВ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-        {lessons.length === 0 ? (
-          <div style={{ color: '#666', marginTop: '20px' }}>В этом курсе пока нет уроков.</div>
-        ) : (
-          lessons.map((lesson, index) => (
-            <Link key={lesson.ID} to={`/lesson/${lesson.ID}?courseId=${id}`} style={{ background: '#252526', border: '1px solid #333', borderRadius: '8px', padding: '20px', textDecoration: 'none', color: 'white', display: 'flex', alignItems: 'center', gap: '15px', transition: 'background 0.2s' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#2a2a2b'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#252526'}>
-              
-              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#00add8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <PlayCircle size={20} color="white" />
+      {/* Список уроков (со скелетоном загрузки) */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+          <Loader2 className="animate-spin mb-4 text-[#00add8]" size={48}/>
+          <p>Загружаем программу курса...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {lessons.length === 0 ? (
+            <div className="col-span-full text-center py-12 bg-[#252526] rounded-xl border border-gray-800 border-dashed">
+              <p className="text-gray-400 text-lg">В этом курсе пока нет уроков.</p>
+              {user?.role === 'teacher' && <p className="text-sm mt-2 text-gray-500">Нажмите «Записать урок», чтобы добавить первый.</p>}
+            </div>
+          ) : (
+            lessons.map((lesson, index) => (
+              <div key={lesson.ID} className="bg-[#252526] border border-gray-800 rounded-xl p-6 flex flex-col hover:border-gray-600 transition-colors">
+                <div className="flex items-center gap-3 mb-4 text-gray-400">
+                  <span className="bg-gray-800 px-3 py-1 rounded-md text-sm font-bold">Урок {index + 1}</span>
+                </div>
+                <h3 className="text-xl font-bold mb-6 flex-1">{lesson.Title}</h3>
+                <Link 
+                  to={`/lesson/${lesson.ID}`} 
+                  className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg font-medium transition-colors"
+                >
+                  <PlayCircle size={18} className="text-[#22c55e]" /> Смотреть
+                </Link>
               </div>
-              
-              <div>
-                <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Урок {index + 1}</div>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>{lesson.Title}</h3>
-              </div>
-            </Link>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

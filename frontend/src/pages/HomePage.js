@@ -1,135 +1,130 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
-import { PlayCircle, Plus, User, Folder, X } from 'lucide-react';
+import { Plus, User, Folder, X, Loader2 } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import api from '../api';
 import toast from 'react-hot-toast';
 
 function HomePage() {
   const [courses, setCourses] = useState([]);
-  const [showCourseModal, setShowCourseModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
   const [newCourse, setNewCourse] = useState({ title: '', description: '' });
   
-  const role = localStorage.getItem('role');
-  const token = localStorage.getItem('token');
+  const { user } = useContext(AuthContext);
 
   useEffect(() => {
     fetchCourses();
   }, []);
 
-  const fetchCourses = () => {
-    fetch('http://localhost:8080/courses')
-      .then(res => res.json())
-      .then(data => setCourses(data || []))
-      .catch(err => console.error("Ошибка загрузки:", err));
+  const fetchCourses = async () => {
+    try {
+      const res = await api.get('/courses');
+      setCourses(res.data || []);
+    } catch (err) {
+      toast.error("Не удалось загрузить курсы");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreateCourse = async () => {
     try {
-      const res = await fetch('http://localhost:8080/courses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(newCourse)
-      });
-      if (res.ok) {
-        setShowCourseModal(false);
-        setNewCourse({ title: '', description: '' });
-        toast.success("Курс успешно создан! 🚀");
-        fetchCourses(); // Перезагружаем список курсов
-      } else {
-        toast.error("Ошибка соединения!");
-      }
-    } catch (err) { toast.error("Ошибка соединения!"); }
+      await api.post('/courses', newCourse);
+      toast.success("Курс успешно создан!");
+      setShowModal(false);
+      setNewCourse({ title: '', description: '' });
+      fetchCourses();
+    } catch (err) {
+      toast.error("Ошибка при создании курса");
+    }
   };
 
   return (
-    <div style={{ padding: '40px', background: '#1e1e1e', minHeight: '100vh', color: 'white', fontFamily: 'system-ui' }}>
-      
-      {/* МОДАЛКА СОЗДАНИЯ КУРСА */}
-      {showCourseModal && (
-        <div style={modalStyles.overlay}>
-          <div style={modalStyles.modal}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#00add8' }}>Новый курс</h2>
-              <button onClick={() => setShowCourseModal(false)} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer' }}><X size={20}/></button>
+    <div className="p-10 min-h-screen">
+      {/* МОДАЛЬНОЕ ОКНО */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#252526] p-8 rounded-xl w-full max-w-md border border-gray-700 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-[#00add8]">Новый курс</h2>
+              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white transition-colors">
+                <X size={24}/>
+              </button>
             </div>
             <input 
-              placeholder="Название курса (например: Основы Go)" 
+              className="w-full bg-[#1e1e1e] border border-gray-600 p-3 rounded-lg mb-4 focus:border-[#00add8] outline-none transition-all"
+              placeholder="Название курса" 
               value={newCourse.title}
               onChange={e => setNewCourse({...newCourse, title: e.target.value})}
-              style={modalStyles.input}
             />
             <textarea 
+              className="w-full bg-[#1e1e1e] border border-gray-600 p-3 rounded-lg mb-6 h-32 resize-none focus:border-[#00add8] outline-none transition-all"
               placeholder="Описание курса..." 
               value={newCourse.description}
               onChange={e => setNewCourse({...newCourse, description: e.target.value})}
-              style={{...modalStyles.input, height: '100px', resize: 'none'}}
             />
-            <div style={{display: 'flex', gap: '10px'}}>
-              <button onClick={handleCreateCourse} style={modalStyles.btnSave}>Создать</button>
-              <button onClick={() => setShowCourseModal(false)} style={modalStyles.btnCancel}>Отмена</button>
+            <div className="flex gap-3">
+              <button onClick={handleCreateCourse} className="flex-1 bg-[#00add8] hover:bg-[#008db1] py-3 rounded-lg font-bold transition-colors">Создать</button>
+              <button onClick={() => setShowModal(false)} className="px-6 py-3 border border-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Отмена</button>
             </div>
           </div>
         </div>
       )}
 
       {/* ШАПКА */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', paddingBottom: '20px', marginBottom: '30px' }}>
+      <header className="flex justify-between items-center border-b border-gray-800 pb-8 mb-10">
         <div>
-          <h1 style={{ margin: 0, fontSize: '32px' }}>Scrimba<span style={{color:'#00add8'}}>Go</span></h1>
-          <p style={{ margin: '5px 0 0 0', color: '#888' }}>Интерактивная платформа для изучения Go</p>
+          <h1 className="text-4xl font-black">Scrimba<span className="text-[#00add8]">Go</span></h1>
+          <p className="text-gray-500 mt-2 text-lg">Интерактивная платформа для изучения Go</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          {token ? (
-            <span style={{ color: '#aaa', display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <User size={16}/> {role === 'teacher' ? 'Преподаватель' : 'Студент'}
-            </span>
-          ) : (
-            <Link to="/auth" style={{ color: '#00add8', textDecoration: 'none' }}>Войти</Link>
-          )}
+        <div className="flex items-center gap-4 bg-gray-800/50 px-4 py-2 rounded-full border border-gray-700">
+          <User size={20} className="text-[#00add8]"/>
+          <span className="text-gray-300 font-medium">
+            {user ? (user.role === 'teacher' ? 'Преподаватель' : 'Студент') : 'Гость'}
+          </span>
         </div>
-      </div>
+      </header>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Folder size={24}/> Все курсы</h2>
-        {role === 'teacher' && (
-          <button onClick={() => setShowCourseModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '10px 15px', background: '#22c55e', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '6px', fontWeight: 'bold' }}>
-            <Plus size={18} /> Создать курс
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-bold flex items-center gap-3"><Folder className="text-[#00add8]"/> Ваши курсы</h2>
+        {user?.role === 'teacher' && (
+          <button onClick={() => setShowModal(true)} className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-green-900/20 transition-all active:scale-95">
+            <Plus size={20}/> Создать курс
           </button>
         )}
       </div>
 
-      {/* КАРТОЧКИ КУРСОВ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-        {courses.length === 0 ? (
-          <div style={{ color: '#666', marginTop: '20px' }}>Пока нет доступных курсов...</div>
-        ) : (
-          courses.map(course => (
-            <div key={course.ID} style={{ background: '#252526', border: '1px solid #333', borderRadius: '8px', padding: '20px', transition: 'transform 0.2s', display: 'flex', flexDirection: 'column' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '10px', fontSize: '20px' }}>{course.Title}</h3>
-              <p style={{ fontSize: '14px', color: '#aaa', flex: 1 }}>{course.Description}</p>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #3c3c3c' }}>
-                <span style={{ fontSize: '12px', color: '#666' }}>Автор: {course.Author?.Username || 'Неизвестен'}</span>
-                <Link to={`/course/${course.ID}`} style={{ padding: '8px 15px', background: '#00add8', color: 'white', textDecoration: 'none', borderRadius: '6px', fontSize: '14px', fontWeight: '500' }}>
-                  Перейти
-                </Link>
+      {/* СПИСОК КУРСОВ */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+          <Loader2 className="animate-spin mb-4" size={48}/>
+          <p>Загрузка курсов...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {courses.length === 0 ? (
+            <p className="text-gray-600 col-span-full text-center py-10">Курсов пока нет. Самое время создать первый!</p>
+          ) : (
+            courses.map(course => (
+              <div key={course.ID} className="bg-[#252526] border border-gray-800 rounded-xl p-6 hover:border-[#00add8]/50 hover:shadow-xl hover:shadow-[#00add8]/5 transition-all group">
+                <h3 className="text-xl font-bold mb-3 group-hover:text-[#00add8] transition-colors">{course.Title}</h3>
+                <p className="text-gray-400 text-sm mb-6 line-clamp-3 h-12">{course.Description}</p>
+                <div className="flex justify-between items-center pt-6 border-t border-gray-800">
+                  <span className="text-xs text-gray-600 font-medium uppercase tracking-wider">
+                    ID: {course.ID}
+                  </span>
+                  <Link to={`/course/${course.ID}`} className="bg-[#00add8] hover:bg-[#008db1] px-6 py-2 rounded-lg text-sm font-bold transition-all active:scale-95">
+                    Открыть
+                  </Link>
+                </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
-
-const modalStyles = {
-  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#252526', padding: '30px', borderRadius: '12px', width: '400px', border: '1px solid #333' },
-  input: { width: '100%', background: '#1e1e1e', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '6px', marginBottom: '15px', outline: 'none' },
-  btnSave: { flex: 1, background: '#00add8', border: 'none', color: 'white', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' },
-  btnCancel: { background: 'transparent', border: '1px solid #444', color: '#888', padding: '10px', borderRadius: '6px', cursor: 'pointer' }
-};
 
 export default HomePage;

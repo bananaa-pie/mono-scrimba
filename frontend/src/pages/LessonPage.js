@@ -1,24 +1,24 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, Mic, SendHorizonal, MessageSquare, Pause, Terminal, Trash2, BookOpen, X, Maximize2, Minimize2, User, LogOut } from 'lucide-react';
+import { Play, Mic, SendHorizonal, MessageSquare, Pause, Terminal, Trash2, BookOpen, X, Maximize2, Minimize2, User, LogOut, ArrowLeft } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useParams, useNavigate } from 'react-router-dom';
+import { AuthContext } from '../context/AuthContext';
+import api from '../api';
+import toast from 'react-hot-toast';
 
-const API_BASE = "http://localhost:8080";
 
 function LessonPage() {
-  const { id } = useParams(); // Достаем ID урока из адресной строки
-  const navigate = useNavigate(); // Для кнопки "Назад"
+  const { id } = useParams();
+  const navigate = useNavigate();
   
-  // --- АВТОРИЗАЦИЯ И РОЛИ ---
-  const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [role, setRole] = useState(localStorage.getItem('role') || '');
-  const [authMode, setAuthMode] = useState(null); // 'login', 'register' или null (скрыто)
+  // --- АВТОРИЗАЦИЯ ИЗ КОНТЕКСТА ---
+  const { user, login, logout } = useContext(AuthContext);
+  const [authMode, setAuthMode] = useState(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [regRole, setRegRole] = useState('student');
-  const [authError, setAuthError] = useState('');
 
   // --- ОСНОВНЫЕ СОСТОЯНИЯ ---
   const [mode, setMode] = useState('idle'); 
@@ -41,17 +41,15 @@ function LessonPage() {
   const audioRef = useRef(new Audio());
   const playAnimationRef = useRef(null);
 
-  // ИСПРАВЛЕНИЕ: Добавили id в зависимости, чтобы урок перезагружался при смене URL
   useEffect(() => {
     fetchLessons();
   }, [id]);
 
-  // --- НОВЫЙ useEffect ДЛЯ ЗАГРУЗКИ АУДИО ---
   useEffect(() => {
     const audio = audioRef.current;
     if (audioUrl) {
-      audio.src = audioUrl; // Присваиваем ссылку только один раз
-      audio.load();         // Готовим плеер к воспроизведению
+      audio.src = audioUrl;
+      audio.load();
     }
   }, [audioUrl]);
 
@@ -62,116 +60,79 @@ function LessonPage() {
     return () => audio.removeEventListener('loadedmetadata', setMeta);
   }, [audioUrl]);
 
-  // Глобальный слушатель пробела (Песочница)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Проверяем, что фокус не в инпуте и не в редакторе, иначе пробел не будет печататься
       if (e.code === 'Space' && 
           e.target.tagName !== 'INPUT' && 
           e.target.tagName !== 'TEXTAREA' &&
           !e.target.classList.contains('view-lines')) { 
-        e.preventDefault(); // Чтобы страница не скроллилась вниз
+        e.preventDefault();
         togglePlayback();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [mode, audioUrl]); 
 
-  // --- ЛОГИКА АВТОРИЗАЦИИ ---
+  // --- ЛОГИКА АВТОРИЗАЦИИ ЧЕРЕЗ AXIOS ---
   const handleAuth = async (isLogin) => {
-    setAuthError('');
     const endpoint = isLogin ? '/login' : '/register';
-    
-    // Формируем тело запроса: при логине роль не отправляем, при регистрации - отправляем
-    const bodyData = isLogin 
-      ? { username, password } 
-      : { username, password, role: regRole };
+    const bodyData = isLogin ? { username, password } : { username, password, role: regRole };
 
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyData)
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.error || 'Ошибка авторизации');
-      
+      const res = await api.post(endpoint, bodyData);
       if (isLogin) {
-        setToken(data.token);
-        setRole(data.role);
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('role', data.role);
+        login(res.data.token, res.data.role); // Используем метод из контекста
         setAuthMode(null);
+        toast.success("Успешный вход!");
       } else {
-        // После успешной регистрации сразу логинимся
         handleAuth(true);
       }
       setUsername('');
       setPassword('');
     } catch (err) {
-      setAuthError(err.message);
+      toast.error(err.response?.data?.error || 'Ошибка авторизации');
     }
   };
 
   const handleLogout = () => {
-    setToken('');
-    setRole('');
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    setMessages([]); // Очищаем историю чата
+    logout();
+    setMessages([]);
+    toast.success("Вы вышли из системы");
   };
 
-  // Хелпер для получения заголовков
-  const getHeaders = () => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
-  });
-
-  // --- ЗАГРУЗКА И API ---
+  // --- ЗАГРУЗКА И API ЧЕРЕЗ AXIOS ---
   const fetchLessons = async () => {
     try {
-      // Ищем ID курса в адресной строке (?courseId=...)
       const params = new URLSearchParams(window.location.search);
       const courseId = params.get('courseId');
+      const url = courseId ? `/courses/${courseId}/lessons` : `/lessons`;
 
-      // Если мы внутри курса, запрашиваем только его уроки. Иначе (вдруг) - все.
-      const url = courseId 
-        ? `${API_BASE}/courses/${courseId}/lessons` 
-        : `${API_BASE}/lessons`;
+      const res = await api.get(url);
+      setLessons(res.data || []);
 
-      const res = await fetch(url);
-      const data = await res.json();
-      setLessons(data || []);
-
-      if (id && id !== 'new' && data && data.length > 0) {
-        const targetLesson = data.find(l => l.ID === parseInt(id));
-        if (targetLesson) {
-          loadLesson(targetLesson);
-        }
+      if (id && id !== 'new' && res.data && res.data.length > 0) {
+        const targetLesson = res.data.find(l => l.ID === parseInt(id));
+        if (targetLesson) loadLesson(targetLesson);
       }
-    } catch (err) { console.error("Ошибка загрузки", err); }
+    } catch (err) { 
+      toast.error("Ошибка загрузки уроков"); 
+    }
   };
 
   const runCode = async () => {
-    if (!token) return setAuthMode('login'); // Требуем логин для запуска
+    if (!user) return setAuthMode('login');
     setOutput("Running...");
     try {
-      const res = await fetch(`${API_BASE}/run`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      setOutput(data.output || data.error || "No output");
-    } catch (err) { setOutput("Backend error. Check connection."); }
+      const res = await api.post('/run', { code });
+      setOutput(res.data.output || res.data.error || "No output");
+    } catch (err) { 
+      setOutput("Backend error. Check connection."); 
+    }
   };
 
   const sendChat = async () => {
-    if (!token) return setAuthMode('login');
+    if (!user) return setAuthMode('login');
     if (!chatInput.trim()) return;
     
     const userMsg = chatInput;
@@ -180,19 +141,15 @@ function LessonPage() {
     if (chatMode === 'hidden') setChatMode('side');
 
     try {
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ message: userMsg, code: code }),
-      });
-      if (res.status === 401) {
-        handleLogout();
-        throw new Error("Сессия истекла");
-      }
-      const data = await res.json();
-      setMessages(prev => [...prev, { role: 'AI', text: data.choices[0].message.content }]);
+      const res = await api.post('/chat', { message: userMsg, code: code });
+      setMessages(prev => [...prev, { role: 'AI', text: res.data.choices[0].message.content }]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'AI', text: "Error: " + err.message }]);
+      if (err.response?.status === 401) {
+        handleLogout();
+        toast.error("Сессия истекла");
+      } else {
+        setMessages(prev => [...prev, { role: 'AI', text: "Error: " + err.message }]);
+      }
     }
   };
 
@@ -204,7 +161,6 @@ function LessonPage() {
     }
   };
 
-  // --- ЗАПИСЬ (ТОЛЬКО ДЛЯ УЧИТЕЛЯ) ---
   const startRecording = async () => {
     timelineRef.current = [{ time: 0, value: code }];
     audioChunksRef.current = [];
@@ -220,10 +176,10 @@ function LessonPage() {
       startTimeRef.current = Date.now();
       mediaRecorderRef.current.start();
       setMode('recording');
-    } catch (err) { alert("Mic access denied!"); }
+      toast.success("Запись начата");
+    } catch (err) { toast.error("Нет доступа к микрофону!"); }
   };
 
-  // ИСПРАВЛЕНИЕ: Добавили привязку к курсу при сохранении
   const saveToDB = async (audioBlob) => {
     const params = new URLSearchParams(window.location.search);
     const courseId = params.get('courseId');
@@ -233,29 +189,23 @@ function LessonPage() {
     formData.append("initial_code", timelineRef.current[0]?.value || code);
     formData.append("timeline", JSON.stringify(timelineRef.current));
     formData.append("audio", audioBlob);
-
-    if (courseId) {
-      formData.append("course_id", courseId);
-    }
+    if (courseId) formData.append("course_id", courseId);
 
     try {
-      const res = await fetch(`${API_BASE}/lessons`, { 
-        method: 'POST', 
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData 
+      const res = await api.post('/lessons', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' } // Axios сам добавит boundary
       });
-      
-      if (res.ok) {
-        if (courseId) {
-          navigate(`/course/${courseId}`); // Возвращаем в курс
-        } else {
-          fetchLessons();
-        }
+      toast.success("Урок успешно сохранен!");
+      if (courseId) {
+        navigate(`/course/${courseId}`);
+      } else {
+        fetchLessons();
       }
-    } catch (e) { console.error("Save error", e); }
+    } catch (e) { 
+      toast.error("Ошибка сохранения урока"); 
+    }
   };
 
-  // --- ВОСПРОИЗВЕДЕНИЕ ---
   const loadLesson = (lesson) => {
     let parsed = [];
     try {
@@ -264,7 +214,8 @@ function LessonPage() {
     
     timelineRef.current = parsed;
     setCode(lesson.InitialCode);
-    setAudioUrl(`${API_BASE}${lesson.AudioURL}`);
+    // Берем базовый URL из axios (в api.js), чтобы подставить его к аудио
+    setAudioUrl(`${api.defaults.baseURL}${lesson.AudioURL}`);
     setCurrentTime(0);
     setMode('idle');
   };
@@ -284,8 +235,6 @@ function LessonPage() {
       cancelAnimationFrame(playAnimationRef.current);
     } else {
       if (!audioUrl) return;
-
-      // СИНХРОНИЗАЦИЯ: Откатываем код студента к оригинальному коду урока на ТЕКУЩЕЙ секунде
       syncCodeToTime(audio.currentTime * 1000);
 
       audio.play().then(() => {
@@ -302,46 +251,37 @@ function LessonPage() {
         };
         playAnimationRef.current = requestAnimationFrame(updateLoop);
       }).catch(err => {
-        console.error("Ошибка воспроизведения аудио:", err);
+        toast.error("Ошибка воспроизведения аудио");
         setMode('idle');
       });
     }
   };
 
-  let chatWidthStyle = '0px';
-  if (chatMode === 'side') chatWidthStyle = '380px';
-  if (chatMode === 'full') chatWidthStyle = '100%';
-
   return (
-    <div style={styles.app}>
+    <div className="h-screen flex flex-col bg-[#1e1e1e] text-white font-sans">
       
       {/* МОДАЛКА АВТОРИЗАЦИИ */}
       {authMode && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modal}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#00add8' }}>{authMode === 'login' ? 'Вход' : 'Регистрация'}</h2>
-              <button onClick={() => setAuthMode(null)} style={styles.clearBtn}><X size={20}/></button>
+        <div className="fixed inset-0 bg-black/70 z-[999] flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-[#252526] p-8 rounded-xl w-[350px] border border-[#3c3c3c] shadow-2xl flex flex-col">
+            <div className="flex justify-between mb-5">
+              <h2 className="m-0 text-[#00add8] text-xl font-bold">{authMode === 'login' ? 'Вход' : 'Регистрация'}</h2>
+              <button onClick={() => setAuthMode(null)} className="text-gray-500 hover:text-white"><X size={20}/></button>
             </div>
-            {authError && <div style={{ color: '#ef4444', marginBottom: '15px', fontSize: '14px' }}>{authError}</div>}
-            <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} style={styles.authInput} />
-            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} style={styles.authInput} />
+            <input className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none focus:border-[#00add8]" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+            <input className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none focus:border-[#00add8]" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
             {authMode === 'register' && (
-              <select 
-                value={regRole} 
-                onChange={e => setRegRole(e.target.value)} 
-                style={{...styles.authInput, cursor: 'pointer', appearance: 'auto'}}
-              >
+              <select className="bg-[#1e1e1e] border border-[#444] text-white p-3 rounded-md mb-4 outline-none cursor-pointer" value={regRole} onChange={e => setRegRole(e.target.value)}>
                 <option value="student">Я ученик (Student)</option>
                 <option value="teacher">Я преподаватель (Teacher)</option>
               </select>
             )}
-            <button onClick={() => handleAuth(authMode === 'login')} style={styles.authSubmitBtn}>
+            <button onClick={() => handleAuth(authMode === 'login')} className="bg-[#00add8] text-white p-3 rounded-md font-bold mt-2 hover:bg-[#008db1] transition-colors">
               {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
             </button>
-            <div style={{ marginTop: '15px', textAlign: 'center', fontSize: '13px', color: '#888' }}>
+            <div className="mt-4 text-center text-[13px] text-gray-400">
               {authMode === 'login' ? 'Нет аккаунта? ' : 'Уже есть аккаунт? '}
-              <span onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} style={{ color: '#00add8', cursor: 'pointer' }}>
+              <span onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-[#00add8] cursor-pointer hover:underline">
                 {authMode === 'login' ? 'Создать' : 'Войти'}
               </span>
             </div>
@@ -349,213 +289,137 @@ function LessonPage() {
         </div>
       )}
 
-      <header style={styles.header}>
-      <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
-          {/* Кнопка назад */}
-          <button onClick={() => navigate('/')} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: '24px', paddingBottom: '3px' }}>
-            ←
+      {/* ШАПКА */}
+      <header className="flex justify-between px-5 py-3 bg-[#252526] border-b border-[#333] items-center">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white transition-colors">
+            <ArrowLeft size={24} />
           </button>
-          <div style={styles.logo}>Scrimba<span style={{color:'#00add8'}}>Go</span></div>
+          <div className="text-lg font-bold">Scrimba<span className="text-[#00add8]">Go</span></div>
         </div>
-        <div style={styles.controls}>
-          <button onClick={runCode} style={styles.btnRun}><Play size={14}/> Run</button>
+        <div className="flex gap-2 items-center">
+          <button onClick={runCode} className="bg-green-500 hover:bg-green-600 text-white px-4 py-1.5 rounded flex items-center gap-2 font-medium transition-colors"><Play size={14}/> Run</button>
           
-          {/* КНОПКА ЗАПИСИ ВИДНА ТОЛЬКО УЧИТЕЛЯМ */}
-          {role === 'teacher' && (
+          {user?.role === 'teacher' && (
             mode === 'recording' ? (
-              <button onClick={() => mediaRecorderRef.current.stop()} style={styles.btnRecActive}>Stop Rec</button>
+              <button onClick={() => mediaRecorderRef.current.stop()} className="bg-amber-500 text-black px-4 py-1.5 rounded flex items-center gap-2 font-bold animate-pulse">Stop Rec</button>
             ) : (
-              <button onClick={startRecording} style={styles.btnRec}><Mic size={14}/> Record</button>
+              <button onClick={startRecording} className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded flex items-center gap-2 font-medium transition-colors"><Mic size={14}/> Record</button>
             )
           )}
 
           {audioUrl && (
-            <button onClick={togglePlayback} style={mode === 'playing' ? styles.btnPause : styles.btnPlay}>
+            <button onClick={togglePlayback} className={`px-4 py-1.5 rounded flex items-center gap-2 font-medium transition-colors ${mode === 'playing' ? 'bg-gray-600 hover:bg-gray-700' : 'bg-[#00add8] hover:bg-[#008db1] text-white'}`}>
               {mode === 'playing' ? <Pause size={14}/> : <Play size={14}/>} {mode === 'playing' ? "Pause" : "Play Lesson"}
             </button>
           )}
 
-          {/* БЛОК ПОЛЬЗОВАТЕЛЯ */}
-          <div style={{ width: '1px', background: '#444', margin: '0 8px' }}></div>
-          {token ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '13px', color: '#aaa', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <User size={14}/> {role}
-              </span>
-              <button onClick={handleLogout} style={styles.btnGhost}><LogOut size={16}/></button>
+          <div className="w-px h-6 bg-[#444] mx-2"></div>
+          {user ? (
+            <div className="flex items-center gap-3">
+              <span className="text-[13px] text-gray-400 flex items-center gap-1"><User size={14}/> {user.role}</span>
+              <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors"><LogOut size={16}/></button>
             </div>
           ) : (
-            <button onClick={() => setAuthMode('login')} style={styles.btnLogin}>Log In</button>
+            <button onClick={() => setAuthMode('login')} className="border border-gray-500 hover:border-gray-400 text-white px-4 py-1.5 rounded font-medium transition-colors">Log In</button>
           )}
         </div>
       </header>
 
+      {/* ТАЙМЛАЙН */}
       {audioUrl && (
-        <div style={styles.timelineContainer}>
+        <div className="flex items-center px-5 py-2 bg-[#2d2d2d] border-b border-[#3c3c3c]">
           <input type="range" min="0" max={duration || 0} value={currentTime} 
             onChange={(e) => {
               const ms = parseFloat(e.target.value);
               audioRef.current.currentTime = ms / 1000;
               setCurrentTime(ms);
               syncCodeToTime(ms);
-            }} style={styles.slider} />
+            }} 
+            className="flex-1 cursor-pointer accent-[#00add8]" 
+          />
         </div>
       )}
 
-      <main className="app-main" style={styles.main}>
-        {/* Боковая панель скрывается, если это новый урок */}
+      {/* ОСТАЛЬНАЯ ЧАСТЬ ЭКРАНА */}
+      <main className="flex-1 flex relative overflow-hidden">
+        {/* БОКОВАЯ ПАНЕЛЬ */}
         {id !== 'new' && (
-          <aside className="library-aside" style={styles.library}>
-            <div style={styles.libHead}><BookOpen size={14}/> LIBRARY</div>
+          <aside className="w-[220px] bg-[#252526] border-r border-[#333] p-4 overflow-y-auto shrink-0 hidden md:block">
+            <div className="text-[11px] text-gray-500 mb-3 flex items-center gap-1 font-bold tracking-wider"><BookOpen size={14}/> УРОКИ КУРСА</div>
             {lessons.map(l => (
               <div 
                 key={l.ID} 
-                // При клике меняем адресную строку, сохраняя привязку к курсу
                 onClick={() => {
                   const params = new URLSearchParams(window.location.search);
                   const cId = params.get('courseId');
                   navigate(`/lesson/${l.ID}${cId ? `?courseId=${cId}` : ''}`);
                 }} 
-                style={{
-                  ...styles.lessonCard, 
-                  // Подсвечиваем урок, который открыт сейчас
-                  border: parseInt(id) === l.ID ? '1px solid #00add8' : '1px solid #444',
-                  background: parseInt(id) === l.ID ? '#2a2a2a' : '#333'
-                }}
+                className={`p-3 rounded-md mb-2 cursor-pointer border text-[13px] transition-colors ${parseInt(id) === l.ID ? 'border-[#00add8] bg-[#2a2a2a]' : 'border-[#444] bg-[#333] hover:bg-[#3a3a3a]'}`}
               >
-                <div style={{fontWeight:'500'}}>{l.Title}</div>
-                <div style={{fontSize:'10px', color:'#666'}}>{new Date(l.CreatedAt).toLocaleDateString()}</div>
+                <div className="font-medium">{l.Title}</div>
+                <div className="text-[10px] text-gray-400 mt-1">{new Date(l.CreatedAt).toLocaleDateString()}</div>
               </div>
             ))}
           </aside>
         )}
 
-        <div className="editor-area" style={{...styles.editorArea, display: chatMode === 'full' ? 'none' : 'flex'}}>
+        {/* РЕДАКТОР КОДА */}
+        <div className={`flex-1 flex flex-col min-w-0 ${chatMode === 'full' ? 'hidden' : 'flex'}`}>
           <Editor 
             height="100%" 
             theme="vs-dark" 
             defaultLanguage="go" 
             value={code} 
             onChange={handleCodeChange}
-            options={{ 
-              readOnly: mode === 'playing', 
-              minimap: { enabled: false }, 
-              fontSize: 15,
-              wordWrap: "on"
-            }} 
+            options={{ readOnly: mode === 'playing', minimap: { enabled: false }, fontSize: 15, wordWrap: "on" }} 
           />
-          <div style={styles.console}>
-            <div style={styles.consoleHead}><Terminal size={12}/> CONSOLE</div>
-            <pre style={styles.consoleText}>{output || "> Ready."}</pre>
-            <button onClick={() => setOutput('')} style={styles.clearBtn}><Trash2 size={12}/></button>
+          {/* КОНСОЛЬ */}
+          <div className="h-[30%] bg-[#0f0f0f] p-3 overflow-y-auto border-t border-[#333] relative group">
+            <div className="text-[11px] text-gray-500 mb-2 flex items-center gap-1 font-bold"><Terminal size={12}/> КОНСОЛЬ</div>
+            <pre className="text-[#4ade80] text-[13px] m-0 font-mono whitespace-pre-wrap">{output || "> Ready."}</pre>
+            <button onClick={() => setOutput('')} className="absolute top-3 right-3 text-gray-600 hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
           </div>
         </div>
 
-        <div className={`chat-container chat-${chatMode}`} style={{...styles.chat, width: chatWidthStyle}}>
-          <div style={styles.chatContent}>
-            <div style={styles.chatHeader}>
-               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 'bold' }}>
-                 <MessageSquare size={16} color="#00add8"/> AI Mentor
-               </div>
-               <div style={{ display: 'flex', gap: '5px' }}>
-                 <button onClick={() => setChatMode(chatMode === 'full' ? 'side' : 'full')} style={styles.iconBtn}>
-                   {chatMode === 'full' ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}
-                 </button>
-                 <button onClick={() => setChatMode('hidden')} style={styles.iconBtn}>
-                   <X size={16}/>
-                 </button>
+        {/* ЧАТ С ИИ */}
+        <div className={`bg-[#252526] border-l border-[#333] transition-all duration-300 overflow-hidden z-10 absolute md:relative right-0 top-0 h-full shadow-[-5px_0_15px_rgba(0,0,0,0.5)] md:shadow-none ${chatMode === 'hidden' ? 'w-0 border-none' : chatMode === 'full' ? 'w-full' : 'w-[85%] md:w-[380px]'}`}>
+          <div className="w-full h-full flex flex-col min-w-[300px]">
+            <div className="flex justify-between items-center p-3 bg-[#1e1e1e] border-b border-[#333]">
+               <div className="flex items-center gap-2 text-[13px] font-bold"><MessageSquare size={16} className="text-[#00add8]"/> ИИ Ментор</div>
+               <div className="flex gap-1">
+                 <button onClick={() => setChatMode(chatMode === 'full' ? 'side' : 'full')} className="text-gray-500 hover:text-white p-1"><Maximize2 size={16}/></button>
+                 <button onClick={() => setChatMode('hidden')} className="text-gray-500 hover:text-white p-1"><X size={16}/></button>
                </div>
             </div>
 
-            <div style={styles.chatMsgs}>
-              {messages.length === 0 && <div style={styles.emptyChat}>Ask your Go mentor...</div>}
+            <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4">
+              {messages.length === 0 && <div className="text-gray-500 text-center mt-20 text-sm">Спроси ментора о коде...</div>}
               {messages.map((m, i) => (
-                <div key={i} style={m.role === 'You' ? styles.msgYou : styles.msgAi}>
-                  <div style={styles.roleLabel}>{m.role}</div>
-                  <div className="markdown-body">
+                <div key={i} className={`p-3 rounded-xl max-w-[90%] shadow-md ${m.role === 'You' ? 'bg-[#00add8] rounded-tr-none self-end' : 'bg-[#2d2d2d] border border-[#3c3c3c] rounded-tl-none self-start'}`}>
+                  <div className="text-[10px] font-bold text-gray-300 mb-1 uppercase tracking-wider opacity-70">{m.role}</div>
+                  <div className="text-sm leading-relaxed text-gray-100 prose prose-invert prose-p:my-1 prose-pre:bg-[#181818] prose-pre:border prose-pre:border-[#333] prose-pre:p-3 prose-pre:rounded-lg">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
                   </div>
                 </div>
               ))}
             </div>
-            <div style={styles.chatInputArea}>
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Ask Mentor..." style={styles.input} />
-              <button onClick={sendChat} style={styles.btnSend}><SendHorizonal size={18}/></button>
+            <div className="p-4 flex gap-2 bg-[#1e1e1e] border-t border-[#333]">
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Задать вопрос..." className="flex-1 bg-[#333] border border-[#444] text-white p-3 rounded-lg outline-none text-sm focus:border-[#00add8] transition-colors" />
+              <button onClick={sendChat} className="bg-[#00add8] hover:bg-[#008db1] text-white px-4 rounded-lg flex items-center justify-center transition-colors"><SendHorizonal size={18}/></button>
             </div>
           </div>
         </div>
 
+        {/* ПЛАВАЮЩАЯ КНОПКА ЧАТА */}
         {chatMode === 'hidden' && (
-          <button onClick={() => setChatMode('side')} style={styles.floatBtn}>
+          <button onClick={() => setChatMode('side')} className="absolute bottom-6 right-6 w-12 h-12 rounded-full bg-[#00add8] hover:bg-[#008db1] text-white z-10 flex items-center justify-center shadow-lg shadow-[#00add8]/30 transition-transform active:scale-95">
             <MessageSquare size={22}/>
           </button>
         )}
       </main>
-
-      <style>{`
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } } 
-        @media (max-width: 768px) {
-          .app-main { flex-direction: column !important; }
-          .library-aside { display: none !important; } 
-          .chat-container { position: absolute; right: 0; top: 0; height: 100%; z-index: 100; box-shadow: -5px 0 15px rgba(0,0,0,0.5); }
-          .chat-side { width: 85% !important; }
-          .chat-full { width: 100% !important; }
-        }
-        .markdown-body { font-size: 14px; line-height: 1.6; color: #e1e1e1; word-wrap: break-word; }
-        .markdown-body p { margin-bottom: 12px; }
-        .markdown-body p:last-child { margin-bottom: 0; }
-        .markdown-body pre { background: #181818; padding: 12px; border-radius: 8px; border: 1px solid #333; overflow-x: auto; margin: 12px 0; }
-        .markdown-body code { font-family: 'Consolas', monospace; background: #2a2a2a; padding: 2px 6px; border-radius: 4px; color: #569cd6; font-size: 13px; }
-        .markdown-body pre code { background: transparent; padding: 0; color: #dcdcaa; }
-        .markdown-body strong { color: #fff; font-weight: 600; }
-      `}</style>
     </div>
   );
 }
-
-const styles = {
-  app: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white', fontFamily: 'system-ui, -apple-system, sans-serif' },
-  header: { display: 'flex', justifyContent: 'space-between', padding: '10px 20px', background: '#252526', borderBottom: '1px solid #333', alignItems: 'center' },
-  logo: { fontSize: '18px', fontWeight: 'bold' },
-  controls: { display: 'flex', gap: '8px' },
-  timelineContainer: { display: 'flex', alignItems: 'center', padding: '8px 20px', background: '#2d2d2d', borderBottom: '1px solid #3c3c3c' },
-  slider: { flex: 1, cursor: 'pointer', accentColor: '#00add8' },
-  main: { flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' },
-  library: { width: '220px', background: '#252526', borderRight: '1px solid #333', padding: '15px', overflowY: 'auto', flexShrink: 0 },
-  libHead: { fontSize: '11px', color: '#888', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold', letterSpacing: '0.5px' },
-  lessonCard: { padding: '10px', background: '#333', borderRadius: '6px', marginBottom: '8px', cursor: 'pointer', border: '1px solid #444', fontSize: '13px', transition: 'background 0.2s' },
-  editorArea: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
-  console: { height: '30%', background: '#0f0f0f', padding: '12px', overflowY: 'auto', borderTop: '1px solid #333', position: 'relative' },
-  consoleHead: { fontSize: '11px', color: '#666', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 'bold' },
-  consoleText: { color: '#4ade80', fontSize: '13px', margin: 0, fontFamily: 'Consolas, monospace', whiteSpace: 'pre-wrap' },
-  clearBtn: { position: 'absolute', top: '10px', right: '10px', background: 'transparent', border: 'none', color: '#555', cursor: 'pointer' },
-  chat: { background: '#252526', borderLeft: '1px solid #333', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', overflow: 'hidden', zIndex: 10 },
-  chatContent: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minWidth: '300px' },
-  chatHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', background: '#1e1e1e', borderBottom: '1px solid #333' },
-  iconBtn: { background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', borderRadius: '4px' },
-  chatMsgs: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' },
-  emptyChat: { color: '#666', textAlign: 'center', marginTop: '50%', fontSize: '14px' },
-  chatInputArea: { padding: '15px', display: 'flex', gap: '10px', background: '#1e1e1e', borderTop: '1px solid #333' },
-  input: { flex: 1, background: '#333', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '6px', outline: 'none', fontSize: '14px' },
-  btnSend: { background: '#00add8', border: 'none', color: 'white', padding: '10px 14px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  floatBtn: { position: 'absolute', bottom: '25px', right: '25px', width: '50px', height: '50px', borderRadius: '50%', background: '#00add8', border: 'none', color: 'white', cursor: 'pointer', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' },
-  btnRun: { background: '#22c55e', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' },
-  btnRec: { background: '#ef4444', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' },
-  btnRecActive: { background: '#f59e0b', border: 'none', color: 'black', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', animation: 'blink 1.5s infinite', fontWeight: 'bold' },
-  btnPlay: { background: '#00add8', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' },
-  btnPause: { background: '#444', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' },
-  btnLogin: { background: '#333', border: '1px solid #555', color: 'white', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontWeight: '500' },
-  btnGhost: { background: 'transparent', border: 'none', color: '#aaa', cursor: 'pointer', display: 'flex', alignItems: 'center' },
-  msgYou: { background: '#00add8', padding: '12px 15px', borderRadius: '12px 12px 0 12px', alignSelf: 'flex-end', maxWidth: '85%', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' },
-  msgAi: { background: '#2d2d2d', padding: '12px 15px', borderRadius: '12px 12px 12px 0', alignSelf: 'flex-start', maxWidth: '90%', border: '1px solid #3c3c3c', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' },
-  roleLabel: { fontSize: '10px', fontWeight: 'bold', color: '#aaa', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  
-  // Стили для модального окна авторизации
-  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' },
-  modal: { background: '#252526', padding: '30px', borderRadius: '12px', width: '350px', border: '1px solid #3c3c3c', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' },
-  authInput: { background: '#1e1e1e', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '6px', marginBottom: '15px', outline: 'none', fontSize: '14px' },
-  authSubmitBtn: { background: '#00add8', border: 'none', color: 'white', padding: '12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', marginTop: '5px' }
-};
 
 export default LessonPage;

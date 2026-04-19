@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -185,14 +186,34 @@ func runHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpDir, _ := os.MkdirTemp("", "code-*")
-	defer os.RemoveAll(tmpDir)
+	// Увеличиваем таймаут до 15 секунд
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-	filePath := filepath.Join(tmpDir, "main.go")
-	os.WriteFile(filePath, []byte(req.Code), 0644)
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "-i",
+		"--network", "none",
+		"--memory", "128m",
+		"golang:1.25-alpine",
+		"sh", "-c", "cat > main.go && go run main.go")
 
-	cmd := exec.Command("go", "run", filePath)
-	out, _ := cmd.CombinedOutput()
+	// Надежно передаем код в стандартный ввод
+	cmd.Stdin = strings.NewReader(req.Code)
+
+	out, err := cmd.CombinedOutput()
+
+	// Если процесс убит по таймауту
+	if ctx.Err() == context.DeadlineExceeded {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"output": "[СИСТЕМА] Ошибка: превышено время выполнения (Timeout 15s). Контейнер запускается слишком долго, либо в коде бесконечный цикл."})
+		return
+	}
+
+	// Если сам Docker не смог запуститься (например, проблемы с правами)
+	if err != nil && len(out) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"output": "[СИСТЕМА ДОКЕР] Ошибка песочницы: " + err.Error()})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"output": string(out)})
