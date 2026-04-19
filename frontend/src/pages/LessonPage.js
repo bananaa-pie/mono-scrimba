@@ -209,12 +209,19 @@ function LessonPage() {
   const loadLesson = (lesson) => {
     let parsed = [];
     try {
-      parsed = typeof lesson.Timeline === 'string' ? JSON.parse(atob(lesson.Timeline)) : lesson.Timeline;
-    } catch(e) { parsed = lesson.Timeline; }
+      if (typeof lesson.Timeline === 'string') {
+        // Умная расшифровка Base64, которая не ломает русский язык
+        const decodedString = decodeURIComponent(escape(window.atob(lesson.Timeline)));
+        parsed = JSON.parse(decodedString);
+      } else {
+        parsed = lesson.Timeline;
+      }
+    } catch(e) { 
+      parsed = lesson.Timeline || []; 
+    }
     
     timelineRef.current = parsed;
     setCode(lesson.InitialCode);
-    // Берем базовый URL из axios (в api.js), чтобы подставить его к аудио
     setAudioUrl(`${api.defaults.baseURL}${lesson.AudioURL}`);
     setCurrentTime(0);
     setMode('idle');
@@ -226,6 +233,24 @@ function LessonPage() {
       setCode(pastEvents[pastEvents.length - 1].value);
     }
   }, []);
+
+  const deleteLesson = async (lessonId) => {
+  if (!window.confirm("Удалить этот урок навсегда?")) return;
+  
+  try {
+    await api.delete(`/lessons/${lessonId}`);
+    toast.success("Урок удален");
+    
+    // Если удалили тот урок, на котором сидим — уходим на главную
+    if (parseInt(id) === lessonId) {
+      navigate('/');
+    } else {
+      fetchLessons(); // Обновляем список в боковой панели
+    }
+  } catch (err) {
+    toast.error("Не удалось удалить урок");
+  }
+};
 
   const togglePlayback = () => {
     const audio = audioRef.current;

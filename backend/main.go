@@ -318,6 +318,46 @@ func lessonsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func deleteLessonHandler(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем ID из пути /lessons/{id}
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 3 {
+		http.Error(w, "ID не указан", http.StatusBadRequest)
+		return
+	}
+	lessonID := pathParts[2]
+
+	// Удаляем запись из базы навсегда (Unscoped)
+	if err := db.DB.Unscoped().Delete(&db.Lesson{}, lessonID).Error; err != nil {
+		http.Error(w, "Ошибка при удалении: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
+func deleteCourseHandler(w http.ResponseWriter, r *http.Request) {
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 3 {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	courseID := pathParts[2]
+
+	// Удаляем сам курс
+	if err := db.DB.Unscoped().Delete(&db.Course{}, courseID).Error; err != nil {
+		http.Error(w, "Failed to delete course", http.StatusInternalServerError)
+		return
+	}
+
+	// Очищаем все уроки, которые были в этом курсе
+	db.DB.Unscoped().Where("course_id = ?", courseID).Delete(&db.Lesson{})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func main() {
 	db.InitDB()
 	os.MkdirAll("./uploads", os.ModePerm)
@@ -351,10 +391,25 @@ func main() {
 
 		if strings.HasSuffix(r.URL.Path, "/lessons") && r.Method == "GET" {
 			getCourseLessonsHandler(w, r)
+		} else if r.Method == "DELETE" {
+			authRoute(deleteCourseHandler)(w, r) // <-- ДОБАВИЛИ ЭТО
 		}
 	})
 
+	// Вот эта строка отвечает за GET и POST уроков (скорее всего ты ее удалил)
 	http.HandleFunc("/lessons", publicRoute(lessonsHandler))
+
+	// А эта (которую мы добавили) отвечает за DELETE
+	http.HandleFunc("/lessons/", func(w http.ResponseWriter, r *http.Request) {
+		enableCORS(&w)
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.Method == "DELETE" {
+			authRoute(deleteLessonHandler)(w, r)
+		}
+	})
 
 	http.HandleFunc("/run", authRoute(runHandler))
 	http.HandleFunc("/chat", authRoute(chatHandler))

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, User, Folder, X, Loader2 } from 'lucide-react';
+import { Plus, User, Folder, X, Loader2, Trash2 } from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../api';
 import toast from 'react-hot-toast';
@@ -37,6 +37,19 @@ function HomePage() {
       fetchCourses();
     } catch (err) {
       toast.error("Ошибка при создании курса");
+    }
+  };
+
+  const deleteCourse = async (e, courseId) => {
+    e.preventDefault(); 
+    if (!window.confirm("Удалить курс и ВСЕ его уроки навсегда?")) return;
+    
+    try {
+      await api.delete(`/courses/${courseId}`);
+      toast.success("Курс успешно удален");
+      fetchCourses();
+    } catch (err) {
+      toast.error("Ошибка при удалении курса");
     }
   };
 
@@ -114,9 +127,16 @@ function HomePage() {
                   <span className="text-xs text-gray-600 font-medium uppercase tracking-wider">
                     ID: {course.ID}
                   </span>
-                  <Link to={`/course/${course.ID}`} className="bg-[#00add8] hover:bg-[#008db1] px-6 py-2 rounded-lg text-sm font-bold transition-all active:scale-95">
-                    Открыть
-                  </Link>
+                  <div className="flex gap-2 items-center">
+                    {user?.role === 'teacher' && (
+                      <button onClick={(e) => deleteCourse(e, course.ID)} className="text-gray-500 hover:text-red-500 bg-[#1e1e1e] hover:bg-red-500/10 p-2 rounded-lg transition-colors">
+                        <Trash2 size={18} />
+                      </button>
+                    )}
+                    <Link to={`/course/${course.ID}`} className="bg-[#00add8] hover:bg-[#008db1] px-6 py-2 rounded-lg text-sm font-bold transition-all active:scale-95">
+                      Открыть
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))

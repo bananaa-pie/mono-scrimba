@@ -29,21 +29,7 @@ services:
     depends_on:
       - db
 
-  # 3. Фронтенд
-  frontend:
-    image: node:18-alpine
-    working_dir: /app
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-    # Запускаем установку зависимостей и старт (через sh -c для надежности)
-    command: sh -c "npm install && npm start"
-    environment:
-      - WATCHPACK_POLLING=true
-      - CHOKIDAR_USEPOLLING=true # Помогает React видеть изменения в Docker
-    depends_on:
-      - backend
+  
 
 volumes:
   pgdata:

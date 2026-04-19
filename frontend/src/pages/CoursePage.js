@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { PlayCircle, Plus, BookOpen, ArrowLeft, Loader2 } from 'lucide-react';
+import { PlayCircle, Plus, BookOpen, ArrowLeft, Loader2, Trash2} from 'lucide-react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../api';
 import toast from 'react-hot-toast';
@@ -31,6 +31,21 @@ function CoursePage() {
 
     fetchLessons();
   }, [id]);
+
+  const deleteLesson = async (e, lessonId) => {
+    e.preventDefault(); 
+    if (!window.confirm("Удалить этот урок навсегда?")) return;
+    
+    try {
+      await api.delete(`/lessons/${lessonId}`);
+      toast.success("Урок удален");
+      // Просто перерисовываем страницу
+      const res = await api.get(`/courses/${id}/lessons`);
+      setLessons(res.data || []);
+    } catch (err) {
+      toast.error("Ошибка при удалении");
+    }
+  };
 
   return (
     <div className="p-10 min-h-screen bg-[#1e1e1e] text-white font-sans">
@@ -93,6 +108,14 @@ function CoursePage() {
                 >
                   <PlayCircle size={18} className="text-[#22c55e]" /> Смотреть
                 </Link>
+                {user?.role === 'teacher' && (
+                    <button 
+                      onClick={(e) => deleteLesson(e, lesson.ID)}
+                      className="px-4 bg-gray-800 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
               </div>
             ))
           )}
