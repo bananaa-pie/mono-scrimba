@@ -46,7 +46,13 @@ type Claims struct {
 }
 
 func enableCORS(w *http.ResponseWriter) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	// Достаем разрешенный домен из настроек сервера (в будущем пропишем там ссылку на Vercel)
+	allowedOrigin := os.Getenv("FRONTEND_URL")
+	if allowedOrigin == "" {
+		allowedOrigin = "*" // Если переменной нет (мы разрабатываем дома), пускаем всех
+	}
+
+	(*w).Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE, PUT")
 	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 }
@@ -317,12 +323,32 @@ func lessonsHandler(w http.ResponseWriter, r *http.Request) {
 			var audioURL string
 			if err == nil {
 				defer file.Close()
+
+				// 1. Читаем файл в память
+				fileBytes, _ := io.ReadAll(file)
 				fileName := fmt.Sprintf("%d.webm", time.Now().UnixNano())
-				filePath := filepath.Join("./uploads", fileName)
-				dst, _ := os.Create(filePath)
-				defer dst.Close()
-				io.Copy(dst, file)
-				audioURL = "/uploads/" + fileName
+
+				// 2. Готовим запрос к Supabase
+				supabaseURL := os.Getenv("SUPABASE_URL")
+				supabaseKey := os.Getenv("SUPABASE_KEY")
+
+				// URL для загрузки файла в бакет "lessons"
+				uploadURL := fmt.Sprintf("%s/storage/v1/object/lessons/%s", supabaseURL, fileName)
+
+				reqStorage, _ := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
+				reqStorage.Header.Set("Authorization", "Bearer "+supabaseKey)
+				reqStorage.Header.Set("Content-Type", "audio/webm")
+
+				client := &http.Client{}
+				respStorage, errStorage := client.Do(reqStorage)
+
+				// Если загрузка прошла успешно, генерируем публичную ссылку для фронтенда
+				if errStorage == nil && respStorage.StatusCode == 200 {
+					audioURL = fmt.Sprintf("%s/storage/v1/object/public/lessons/%s", supabaseURL, fileName)
+				} else {
+					fmt.Println("Ошибка загрузки в Supabase. Статус:", respStorage.StatusCode)
+				}
+				defer respStorage.Body.Close()
 			}
 
 			lesson := db.Lesson{
@@ -380,6 +406,14 @@ func deleteCourseHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	fmt.Println("Попытка инициализации базы данных...")
+	db.InitDB()
+	fmt.Println("База данных успешно подключена и мигрирована!")
+
+	os.MkdirAll("./uploads", os.ModePerm)
+	// ... остальной код
+
 	db.InitDB()
 	os.MkdirAll("./uploads", os.ModePerm)
 

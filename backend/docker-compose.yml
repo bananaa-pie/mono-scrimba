@@ -1,35 +1,22 @@
 
-services:
-  # Наша база данных
-  db:
-    image: postgres:15-alpine
-    container_name: scrimba_db
-    restart: always
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: scrimba_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
-  # Твой Go бэкенд
+services:
   app:
     build: .
     container_name: scrimba_backend
     restart: always
-    ports:
-      - "8080:8080"
+    # Используем сеть хоста, чтобы избежать проблем с IPv6 внутри Docker
+    network_mode: "host"
     environment:
-      DB_URL: "host=db user=user password=password dbname=scrimba_db port=5432 sslmode=disable"
+      # Ссылка на твою облачную базу Supabase
+      DB_URL: "postgresql://postgres.zgqeobtchewrpkstsany:0iM3DpIBHTPEL4J1@aws-1-eu-west-2.pooler.supabase.com:5432/postgres?sslmode=require"
+      
       HF_TOKEN: "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"
-      JWT_SECRET: "super_secret_diploma_key_2026" # <-- Добавили ключ сюда
+      JWT_SECRET: "super_secret_diploma_key_2026"
+      
+      SUPABASE_URL: "https://zgqeobtchewrpkstsany.supabase.co"
+      # Сюда вставь свой длинный секретный ключ service_role (начинается на eyJ...)
+      SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpncWVvYnRjaGV3cnBrc3RzYW55Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjY5NzI5NywiZXhwIjoyMDkyMjczMjk3fQ.SpLagSySRJ5PSOUdDbQm-yZc6SS3S1G4od6HwBSF8gE"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/app 
-    depends_on:
-      - db
-
-volumes:
-  postgres_data:
+      - ./:/app

@@ -51,11 +51,18 @@ func CheckPasswordHash(password, hash string) bool {
 func InitDB() {
 	dsn := os.Getenv("DB_URL")
 	var err error
+
+	// Это и есть стандартное подключение через postgres.Open
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("Failed to connect to database: ", err)
+		log.Fatal("Не удалось подключиться к базе данных: ", err)
 	}
 
-	// GORM автоматически создаст/обновит таблицы и настроит связи (Foreign Keys)
-	DB.AutoMigrate(&User{}, &Course{}, &Lesson{})
+	log.Println("Подключение к БД установлено. Запуск миграций...")
+
+	// Автоматическое создание таблиц
+	err = DB.AutoMigrate(&User{}, &Course{}, &Lesson{})
+	if err != nil {
+		log.Fatal("Ошибка при миграции таблиц: ", err)
+	}
 }
