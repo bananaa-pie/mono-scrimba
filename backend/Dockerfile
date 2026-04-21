@@ -1,20 +1,17 @@
 FROM golang:1.25-alpine
 
-# Ставим зависимости
-RUN apk add --no-cache docker-cli git
-
+# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Устанавливаем Air (утилита для горячей перезагрузки)
-RUN go install github.com/air-verse/air@latest
-
-# Кэшируем зависимости
+# Копируем файлы зависимостей и скачиваем их
 COPY go.mod go.sum ./
-ENV GOTOOLCHAIN=local
 RUN go mod download
 
-# Мы убрали COPY . . и RUN go build. 
-# Код теперь будет попадать в контейнер напрямую с твоего компа!
+# МАГИЯ ЗДЕСЬ: Копируем весь твой код внутрь контейнера
+COPY . .
 
-# Запускаем Air
-CMD ["air"]
+# Собираем готовый исполняемый файл (бинарник)
+RUN go build -o main .
+
+# Запускаем собранное приложение (без всяких air)
+CMD ["./main"]
