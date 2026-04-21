@@ -4,7 +4,7 @@ import axios from 'axios';
 // Если мы на Vercel — берет ссылку из настроек Vercel
 // Если мы дома — берет localhost из файла .env
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://mono-scrimba.onrender.com'
+  baseURL: process.env.REACT_APP_API_URL || 'https://mono-scrimba.onrender.com'
 });
 
 // Перехватчик: автоматически прикрепляет токен авторизации к каждому запросу

@@ -249,7 +249,11 @@ function LessonPage() {
     
     timelineRef.current = parsed;
     setCode(lesson.InitialCode);
-    setAudioUrl(`${api.defaults.baseURL}${lesson.AudioURL}`);
+
+    // ЗДЕСЬ ИСПРАВЛЕНИЕ: Мы берем готовую ссылку на Supabase Storage
+    // которую нам вернула база данных, без добавления api.defaults.baseURL
+    setAudioUrl(lesson.AudioURL);
+    
     setCurrentTime(0);
     setMode('idle');
   };
